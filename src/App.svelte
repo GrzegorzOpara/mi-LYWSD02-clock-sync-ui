@@ -29,7 +29,6 @@
   let connecting = $state(false)
   let logs = $state([])
   let now = $state(null)
-  let consoleEl
 
   const selectedClocks = $derived(clocks.filter((clock) => clock.selected && clock.device))
   const hasDisconnected = $derived(clocks.some((clock) => !clock.device))
@@ -71,10 +70,11 @@
     return () => clearInterval(timer)
   })
 
-  $effect(() => {
+  /** Keeps the activity log scrolled to the newest entry. */
+  function followLog(el) {
     logs.length
-    consoleEl?.scrollTo({ top: consoleEl.scrollHeight })
-  })
+    el.scrollTo({ top: el.scrollHeight })
+  }
 
   function pad(n) {
     return String(n).padStart(2, '0')
@@ -291,7 +291,7 @@
         <ul class="clocks">
           {#each clocks as clock (clock.id)}
             {@const drift = clock.reading?.displayOffset != null ? clock.reading.displayOffset - offsetMinutes * 60 : null}
-            <li class:offline={!clock.device}>
+            <li class={{ offline: !clock.device }}>
               <input
                 class="check"
                 type="checkbox"
@@ -337,7 +337,7 @@
                       <span><Icon name="droplet" size={14} />{clock.reading.humidity}%</span>
                     {/if}
                     {#if clock.reading.battery != null}
-                      <span class:low={clock.reading.battery < 20}>
+                      <span class={{ low: clock.reading.battery < 20 }}>
                         <Icon name="battery" size={14} level={clock.reading.battery} />{clock.reading.battery}%
                       </span>
                     {/if}
@@ -346,7 +346,7 @@
 
                 <div class="meta">
                   {#if drift != null}
-                    <span class="badge" class:ok={Math.abs(drift) < 60} class:warn={Math.abs(drift) >= 60}>
+                    <span class={['badge', { ok: Math.abs(drift) < 60, warn: Math.abs(drift) >= 60 }]}>
                       {formatDrift(drift)}
                     </span>
                   {/if}
@@ -507,7 +507,7 @@
       </span>
       <span class="chevron"><Icon name="chevron" size={18} /></span>
     </summary>
-    <div class="console" bind:this={consoleEl} aria-live="polite">
+    <div class="console" {@attach followLog} aria-live="polite">
       {#each logs as entry, i (i)}
         <div><span class="muted">{entry.time}</span> {entry.message}</div>
       {:else}
