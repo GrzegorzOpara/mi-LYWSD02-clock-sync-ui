@@ -106,6 +106,7 @@
       nickname: '',
       deviceId: null,
       hardwareId: null,
+      macSuffix: null,
       reading: null,
       readAt: null,
       device: null,
@@ -116,10 +117,11 @@
     return clocks.at(-1)
   }
 
-  function applyReading(clock, { hardwareId, ...reading }) {
+  function applyReading(clock, { hardwareId, macSuffix, ...reading }) {
     clock.reading = reading
     clock.readAt = Date.now()
     if (hardwareId) clock.hardwareId = hardwareId
+    if (macSuffix) clock.macSuffix = macSuffix
   }
 
   /**
@@ -278,6 +280,9 @@
                 title="Click to rename"
                 maxlength="40"
               />
+              {#if clock.macSuffix}
+                <span class="mac" title="End of the clock's Bluetooth MAC address">…{clock.macSuffix}</span>
+              {/if}
             </div>
             <button class="link" disabled={busy} onclick={() => removeClock(clock)}>Remove</button>
 
@@ -336,14 +341,18 @@
         </li>
         <li>Move closer to the clock and check its battery.</li>
         <li>
-          Clocks set up in Mi Home don't broadcast their name, so they show up without one (e.g. "Unknown or
-          unsupported device") in the browser's list.
+          Clocks set up in Mi Home work too, but don't broadcast their name, so they show up without one (e.g.
+          "Unknown or unsupported device") in the browser's list.
         </li>
         <li>
-          If a clock set up in Mi Home still won't connect, delete it in the Mi Home app and factory reset it:
-          remove the back cover and, while the clock is running, connect the <strong>Reset</strong> and
-          <strong>Gnd</strong> metal points next to a battery with something metal (e.g. a paperclip) for more
-          than 7 seconds. The clock restarts with factory settings; then add it here again.
+          On a Mac, the addresses in Chrome's device list are made up by Chrome (macOS hides the real ones), so they
+          won't match the MAC shown here or in Mi Home.
+        </li>
+        <li>
+          As a last resort, factory reset the clock: remove the back cover and, while the clock is running, connect
+          the <strong>Reset</strong> and <strong>Gnd</strong> metal points next to a battery with something metal
+          (e.g. a paperclip) for more than 7 seconds. The clock restarts with factory settings. Delete it in the Mi
+          Home app if it was set up there, then add it here again.
         </li>
       </ul>
     </details>

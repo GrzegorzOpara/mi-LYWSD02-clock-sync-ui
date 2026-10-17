@@ -137,25 +137,32 @@ async function readSensor(service) {
   return { temperature: view.getInt16(0, true) / 100, humidity: view.getUint8(2) }
 }
 
+const toHex = (bytes, separator = '') =>
+  [...bytes].map((byte) => byte.toString(16).padStart(2, '0').toUpperCase()).join(separator)
+
 /**
- * Identifies the clock across browser sessions, where Chrome's device ids change. The System ID
- * is hashed because it's derived from the MAC address and localStorage is shared by every
- * page on the same github.io origin.
+ * The System ID is the MAC address in reverse byte order. A hash of it identifies the clock
+ * across browser sessions, where Chrome's device ids change, without storing the whole
+ * address; the last 3 bytes (the part after the A4:C1:38 vendor prefix) are kept for display.
  */
-async function readHardwareId(server) {
+async function readIdentity(server) {
   try {
     const service = await server.getPrimaryService(DEVICE_INFORMATION)
-    const systemId = await read(service, SYSTEM_ID)
-    const hash = await crypto.subtle.digest('SHA-256', systemId)
-    return [...new Uint8Array(hash, 0, 8)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+    const view = await read(service, SYSTEM_ID)
+    const systemId = new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
+    const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', systemId), 0, 8)
+    return {
+      hardwareId: toHex(hash).toLowerCase(),
+      macSuffix: systemId.length === 6 ? toHex(systemId.slice(0, 3).reverse(), ':') : null,
+    }
   } catch {
-    return null
+    return { hardwareId: null, macSuffix: null }
   }
 }
 
 export function readStatus(device) {
   return withService(device, async (service, server) => ({
-    hardwareId: await readHardwareId(server),
+    ...(await readIdentity(server)),
     battery: (await read(service, BATTERY)).getUint8(0),
     unit: (await read(service, UNIT)).getUint8(0) === FAHRENHEIT ? FAHRENHEIT : CELSIUS,
     displayOffset: decodeDisplayOffset(await read(service, TIME)),

@@ -213,6 +213,13 @@ button:disabled {
   border-radius: 4px;
 }
 
+.mac {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8em;
+  color: var(--muted);
+}
+
 .nickname:hover,
 .nickname:focus {
   border: 1px solid var(--border);

@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'lywsd02-clock-sync:clocks'
-const SAVED_FIELDS = ['id', 'number', 'nickname', 'deviceId', 'hardwareId', 'reading', 'readAt']
+const SAVED_FIELDS = ['id', 'number', 'nickname', 'deviceId', 'hardwareId', 'macSuffix', 'reading', 'readAt']
 
 export function loadClocks() {
   try {

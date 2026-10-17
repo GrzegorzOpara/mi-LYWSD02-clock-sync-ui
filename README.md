@@ -8,7 +8,7 @@ Web Bluetooth is supported in Chrome and Edge on desktop and Android. For connec
 
 ## Multiple clocks
 
-Browsers only let a page pick one Bluetooth device at a time, so press **Add clock** once per clock. Every action applies to the checked clocks. Click a clock's name to give it a nickname.
+Browsers only let a page pick one Bluetooth device at a time, so press **Add clock** once per clock. Every action applies to the checked clocks. Click a clock's name to give it a nickname. The end of each clock's MAC address is shown next to its name; Web Bluetooth hides MAC addresses, but the clock's System ID (`0x2A23`) is the MAC in reverse byte order. On macOS, the addresses in Chrome's device chooser are not real MACs: Chrome shows the first 6 bytes of a SHA-256 hash of the CoreBluetooth peripheral UUID, which is different on every Mac.
 
 The chooser lists devices whose name starts with `LYWSD02`, plus devices whose Xiaomi manufacturer data (company `0x038F`) carries an LYWSD02 / LYWSD02MMC product id (`0x045B`, `0x2542`, `0x16E4`). The second filter is needed because clocks bound to Mi Home only send encrypted adverts without a name.
 
@@ -20,7 +20,8 @@ The list, nicknames and last readings are saved in localStorage. After a reload:
 ## Troubleshooting
 
 - A clock that's connected to something else (the Mi Home app, a hub, Home Assistant) stops advertising and won't show up.
-- If a clock bound to Mi Home won't connect, delete it in the Mi Home app and factory reset it. From the LYWSD02MMC manual: remove the back cover and, while the clock is running, connect the "Reset" and "Gnd" metal points near a battery with a metal conductor for more than 7 seconds. The clock restarts with factory settings.
+- Clocks bound to Mi Home can still be synced (confirmed on an LYWSD02MMC); they just don't advertise a name.
+- As a last resort, factory reset the clock. From the LYWSD02MMC manual: remove the back cover and, while the clock is running, connect the "Reset" and "Gnd" metal points near a battery with a metal conductor for more than 7 seconds. The clock restarts with factory settings. Delete it in the Mi Home app if it was set up there.
 
 ## Time zones
 
