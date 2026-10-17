@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Temporary SSR bundle used by scripts/prerender.js
+dist-ssr

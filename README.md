@@ -6,8 +6,8 @@ Set the time, time zone and temperature unit on one or more Xiaomi Mijia LYWSD02
 
 <table>
   <tr>
-    <td><img src="docs/screenshot-light.png" alt="Clock sync in light mode" width="360"></td>
-    <td><img src="docs/screenshot-dark.png" alt="Clock sync in dark mode" width="360"></td>
+    <td><img src="docs/screenshot-light.png" alt="Clock sync in light mode" width="320"></td>
+    <td><img src="docs/screenshot-dark.png" alt="Clock sync in dark mode" width="320"></td>
   </tr>
 </table>
 
@@ -41,7 +41,7 @@ npm install
 npm run dev
 ```
 
-`npm run build` outputs a static site to `dist/`. Pushing to `main` deploys it to GitHub Pages via `.github/workflows/deploy.yml`.
+`npm run build` outputs a static site to `dist/`. After the client build, `scripts/prerender.js` renders the page with `svelte/server` into `dist/index.html`, so all text is in the HTML before any JavaScript runs; the client then hydrates it. Anything that depends on the visitor's browser (time zone, current time, saved clocks, Bluetooth support) is filled in on mount. Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`.
 
 ## Credits
 

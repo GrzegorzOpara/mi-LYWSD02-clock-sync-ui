@@ -10,37 +10,47 @@
     writeTime,
     writeUnit,
   } from './lib/lywsd02.js'
-  import clockImage from './assets/lywsd02.webp'
   import Icon from './lib/Icon.svelte'
   import { loadClocks, saveClocks } from './lib/savedClocks.js'
   import { formatOffset, getLocalTimeZone, getOffsetMinutes, groupTimeZones } from './lib/timezones.js'
 
-  const supported = isBluetoothSupported()
-  const localTimeZone = getLocalTimeZone()
-  const timeZoneGroups = groupTimeZones([localTimeZone])
-
-  // Saved clocks start disconnected: the browser has to hand out the Bluetooth device again.
-  let clocks = $state(loadClocks().map((saved) => ({ ...saved, device: null, selected: true, status: null })))
+  // The page is prerendered at build time, so anything that depends on the visitor's browser
+  // (Bluetooth support, time zone, current time, saved clocks) starts out neutral and is filled
+  // in on mount. That keeps the first client render identical to the prerendered HTML.
+  let supported = $state(true)
+  let localTimeZone = $state(null)
+  let timeZoneGroups = $state([])
+  let clocks = $state([])
+  let loaded = $state(false)
   let useLocalZone = $state(true)
-  let chosenZone = $state(localTimeZone)
+  let chosenZone = $state(null)
   let unit = $state(CELSIUS)
   let busy = $state(false)
   let connecting = $state(false)
   let logs = $state([])
-  let now = $state(new Date())
+  let now = $state(null)
   let consoleEl
 
   const selectedClocks = $derived(clocks.filter((clock) => clock.selected && clock.device))
   const hasDisconnected = $derived(clocks.some((clock) => !clock.device))
   const timeZone = $derived(useLocalZone ? localTimeZone : chosenZone)
-  const offsetMinutes = $derived(getOffsetMinutes(timeZone, now))
+  const offsetMinutes = $derived(timeZone && now ? getOffsetMinutes(timeZone, now) : 0)
   const clockTime = $derived.by(() => {
+    if (!now) return '--:--'
     const shifted = new Date(now.getTime() + offsetMinutes * 60 * 1000)
     return `${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}`
   })
   const clocksLabel = $derived(`${selectedClocks.length} clock${selectedClocks.length === 1 ? '' : 's'}`)
 
   onMount(async () => {
+    supported = isBluetoothSupported()
+    localTimeZone = chosenZone = getLocalTimeZone()
+    timeZoneGroups = groupTimeZones([localTimeZone])
+    now = new Date()
+    // Saved clocks start disconnected: the browser has to hand out the Bluetooth device again.
+    clocks = loadClocks().map((saved) => ({ ...saved, device: null, selected: true, status: null }))
+    loaded = true
+
     for (const device of await getRememberedClocks()) {
       const clock = clocks.find((c) => c.deviceId === device.id)
       if (clock) clock.device = device
@@ -51,7 +61,10 @@
     }
   })
 
-  $effect(() => saveClocks(clocks))
+  // Wait for the saved list to load, or the initial empty list would overwrite it.
+  $effect(() => {
+    if (loaded) saveClocks(clocks)
+  })
 
   $effect(() => {
     const timer = setInterval(() => (now = new Date()), 1000)
@@ -231,7 +244,8 @@
 
 <main>
   <header class="app-header">
-    <img class="thumb" src={clockImage} alt="Xiaomi LYWSD02 clock" width="64" height="64" />
+    <!-- Relative path from public/: an imported asset would be prerendered with an absolute URL. -->
+    <img class="thumb" src="./lywsd02.webp" alt="Xiaomi LYWSD02 clock" width="64" height="64" />
     <div>
       <h1>Clock sync</h1>
       <p class="muted">Time, time zone and units for Xiaomi LYWSD02 &amp; LYWSD02MMC clocks</p>
@@ -425,13 +439,16 @@
       <div class="preview">
         <span class="muted small">Clocks will show</span>
         <span class="preview-time">{clockTime}</span>
-        <span class="muted small">{formatOffset(offsetMinutes)} · {timeZone.replaceAll('_', ' ')}</span>
+        <!-- Non-breaking space keeps the line height until the time zone is known. -->
+        <span class="muted small">
+          {timeZone ? `${formatOffset(offsetMinutes)} · ${timeZone.replaceAll('_', ' ')}` : ' '}
+        </span>
       </div>
 
       <label class="setting">
         <span>
           <span class="setting-label">Use this device's time zone</span>
-          <span class="muted small">{localTimeZone.replaceAll('_', ' ')}</span>
+          <span class="muted small">{localTimeZone?.replaceAll('_', ' ') ?? ' '}</span>
         </span>
         <input class="switch" type="checkbox" role="switch" bind:checked={useLocalZone} />
       </label>
