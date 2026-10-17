@@ -1,8 +1,15 @@
 # mi-LYWSD02-clock-sync-ui
 
-Set the time, time zone and temperature unit on one or more Xiaomi Mijia LYWSD02 Bluetooth clocks straight from the browser, using Web Bluetooth. Each clock's temperature, humidity, battery level and how far its time is off are shown in a list.
+Set the time, time zone and temperature unit on one or more Xiaomi Mijia LYWSD02 / LYWSD02MMC Bluetooth clocks straight from the browser, using Web Bluetooth. Each clock's temperature, humidity, battery level and how far its time is off are shown in a list.
 
 **Live version:** https://khromov.github.io/mi-LYWSD02-clock-sync-ui/
+
+<table>
+  <tr>
+    <td><img src="docs/screenshot-light.png" alt="Clock sync in light mode" width="360"></td>
+    <td><img src="docs/screenshot-dark.png" alt="Clock sync in dark mode" width="360"></td>
+  </tr>
+</table>
 
 Web Bluetooth is supported in Chrome and Edge on desktop and Android. For connection issues, open `chrome://bluetooth-internals/#devices/` in Chrome.
 
@@ -38,4 +45,4 @@ npm run dev
 
 ## Credits
 
-Based on code snippets from [web.dev](https://web.dev/bluetooth/) and [lywsd02](https://github.com/h4/lywsd02/blob/master/lywsd02/client.py). Thanks to [Harold De Armas](https://github.com/dearmash) for adding C/F support and [Mitja Pugelj](https://www.linkedin.com/in/mitjapugelj).
+Inspired by the original [LYWSD02 Clock sync](https://saso5.github.io/LYWSD02-clock-sync/). Based on code snippets from [web.dev](https://web.dev/bluetooth/), [lywsd02](https://github.com/h4/lywsd02/blob/master/lywsd02/client.py) and [lywsd02-ble-android-app](https://github.com/muro-dot/lywsd02-ble-android-app). Thanks to [Harold De Armas](https://github.com/dearmash) for adding C/F support and [Mitja Pugelj](https://www.linkedin.com/in/mitjapugelj).

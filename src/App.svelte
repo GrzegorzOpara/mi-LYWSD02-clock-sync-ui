@@ -10,6 +10,8 @@
     writeTime,
     writeUnit,
   } from './lib/lywsd02.js'
+  import clockImage from './assets/lywsd02.webp'
+  import Icon from './lib/Icon.svelte'
   import { loadClocks, saveClocks } from './lib/savedClocks.js'
   import { formatOffset, getLocalTimeZone, getOffsetMinutes, groupTimeZones } from './lib/timezones.js'
 
@@ -19,7 +21,8 @@
 
   // Saved clocks start disconnected: the browser has to hand out the Bluetooth device again.
   let clocks = $state(loadClocks().map((saved) => ({ ...saved, device: null, selected: true, status: null })))
-  let timeZone = $state(localTimeZone)
+  let useLocalZone = $state(true)
+  let chosenZone = $state(localTimeZone)
   let unit = $state(CELSIUS)
   let busy = $state(false)
   let connecting = $state(false)
@@ -29,6 +32,7 @@
 
   const selectedClocks = $derived(clocks.filter((clock) => clock.selected && clock.device))
   const hasDisconnected = $derived(clocks.some((clock) => !clock.device))
+  const timeZone = $derived(useLocalZone ? localTimeZone : chosenZone)
   const offsetMinutes = $derived(getOffsetMinutes(timeZone, now))
   const clockTime = $derived.by(() => {
     const shifted = new Date(now.getTime() + offsetMinutes * 60 * 1000)
@@ -91,7 +95,7 @@
   function formatDrift(seconds) {
     const abs = Math.abs(seconds)
     const direction = seconds > 0 ? 'ahead' : 'behind'
-    if (abs < 5) return 'Time is correct'
+    if (abs < 5) return 'On time'
     if (abs < 60) return `${abs} s ${direction}`
     const minutes = Math.round(abs / 60)
     const hours = Math.floor(minutes / 60)
@@ -226,221 +230,291 @@
 </script>
 
 <main>
-  <header>
-    <img
-      src="https://imgaz3.staticbg.com/thumb/large/oaupload/banggood/images/74/DF/f05ddb02-4334-48a1-8785-39c4a5d9d9c1.jpg.webp"
-      alt="Xiaomi Mijia LYWSD02 clock"
-      width="120"
-      height="120"
-    />
+  <header class="app-header">
+    <img class="thumb" src={clockImage} alt="Xiaomi LYWSD02 clock" width="64" height="64" />
     <div>
-      <h1>LYWSD02 Clock sync</h1>
-      <p class="subtitle">
-        Xiaomi Mijia BT4.0 Wireless Smart Electric Digital Clock Indoor &amp; Outdoor Hygrometer
-        Thermometer
-      </p>
+      <h1>Clock sync</h1>
+      <p class="muted">Time, time zone and units for Xiaomi LYWSD02 &amp; LYWSD02MMC clocks</p>
     </div>
   </header>
 
   {#if !supported}
-    <p class="warning">
-      Web Bluetooth is not available in this browser. Use Chrome or Edge on desktop or Android.
+    <p class="banner warning">
+      <Icon name="alert" />
+      Web Bluetooth isn't available in this browser. Use Chrome or Edge on desktop or Android.
     </p>
   {/if}
 
-  <fieldset>
-    <legend>Clocks</legend>
-    {#if clocks.length === 0}
-      <p class="hint">
-        No clocks yet. Press <strong>Add clock</strong> and pick a clock from the browser's list. The
-        browser only allows picking one at a time, so repeat this for each clock.
-      </p>
-    {:else}
-      {#if hasDisconnected && !busy}
-        <p class="hint">
-          After a reload, the browser needs you to pick each clock again: press <strong>Reconnect</strong> and choose
-          it from the list.
-        </p>
+  <section>
+    <div class="section-head">
+      <h2>Clocks</h2>
+      {#if clocks.length > 0}
+        <button
+          class="ghost"
+          disabled={!supported || busy || selectedClocks.length === 0}
+          onclick={() => runOn(selectedClocks, 'Reading', refresh)}
+        >
+          <Icon name="refresh" size={14} />
+          Refresh
+        </button>
       {/if}
-      <ul class="clocks">
-        {#each clocks as clock (clock.id)}
-          <li>
-            <div class="clock-name">
+    </div>
+
+    <div class="card">
+      {#if clocks.length === 0}
+        <div class="empty">
+          <div class="empty-icon"><Icon name="bluetooth" size={22} /></div>
+          <p><strong>No clocks yet</strong></p>
+          <p class="muted">Add each of your clocks once. The browser only lets you pick one at a time.</p>
+        </div>
+      {:else}
+        {#if hasDisconnected && !busy}
+          <p class="notice">
+            After a reload, the browser needs you to pick each clock again: press <strong>Reconnect</strong> and choose it
+            from the list.
+          </p>
+        {/if}
+        <ul class="clocks">
+          {#each clocks as clock (clock.id)}
+            {@const drift = clock.reading?.displayOffset != null ? clock.reading.displayOffset - offsetMinutes * 60 : null}
+            <li class:offline={!clock.device}>
               <input
+                class="check"
                 type="checkbox"
                 bind:checked={clock.selected}
                 disabled={!clock.device}
                 aria-label="Include {clockName(clock)}"
               />
-              <input
-                class="nickname"
-                bind:value={clock.nickname}
-                placeholder="Clock {clock.number}"
-                aria-label="Name of {clockName(clock)}"
-                title="Click to rename"
-                maxlength="40"
-              />
-              {#if clock.macSuffix}
-                <span class="mac" title="End of the clock's Bluetooth MAC address">…{clock.macSuffix}</span>
-              {/if}
-            </div>
-            <button class="link" disabled={busy} onclick={() => removeClock(clock)}>Remove</button>
-
-            {#if clock.reading}
-              <div class="readings">
-                {#if clock.reading.temperature != null}
-                  <span>{formatTemperature(clock.reading.temperature, clock.reading.unit)}</span>
-                  <span>{clock.reading.humidity}% humidity</span>
-                {/if}
-                {#if clock.reading.battery != null}
-                  <span class:low={clock.reading.battery < 20}>Battery {clock.reading.battery}%</span>
+              <div class="clock-title">
+                <input
+                  class="nickname"
+                  bind:value={clock.nickname}
+                  placeholder="Clock {clock.number}"
+                  aria-label="Name of {clockName(clock)}"
+                  title="Click to rename"
+                  maxlength="40"
+                />
+                {#if clock.macSuffix}
+                  <span class="mac" title="End of the clock's Bluetooth MAC address">…{clock.macSuffix}</span>
                 {/if}
               </div>
-              {#if clock.reading.displayOffset != null}
-                {@const drift = clock.reading.displayOffset - offsetMinutes * 60}
-                <div class="drift" class:off={Math.abs(drift) >= 60}>{formatDrift(drift)}</div>
-              {/if}
-            {/if}
 
-            {#if clock.status}
-              <div class="status {clock.status.type}">{clock.status.text}</div>
-            {:else if !clock.device}
-              <div class="status">
-                Not connected{clock.readAt ? ` · last read ${formatWhen(clock.readAt)}` : ''}
-                <button class="link" disabled={!supported || busy} onclick={() => pickClock(clock)}>Reconnect</button>
+              <div class="clock-actions">
+                {#if !clock.device}
+                  <button class="chip" disabled={!supported || busy} onclick={() => pickClock(clock)}>Reconnect</button>
+                {/if}
+                <button
+                  class="icon-button"
+                  disabled={busy}
+                  onclick={() => removeClock(clock)}
+                  aria-label="Remove {clockName(clock)}"
+                  title="Remove"
+                >
+                  <Icon name="trash" size={18} />
+                </button>
               </div>
-            {/if}
-          </li>
-        {/each}
-      </ul>
-    {/if}
-    <div class="actions">
-      <button disabled={!supported || busy} onclick={() => pickClock()}>Add clock</button>
-      {#if clocks.length > 0}
-        <button
-          class="secondary"
-          disabled={!supported || busy || selectedClocks.length === 0}
-          onclick={() => runOn(selectedClocks, 'Reading', refresh)}
-        >
-          Refresh readings
+
+              <!-- Spans under the actions too, so narrow screens don't waste the right column. -->
+              <div class="clock-details">
+                {#if clock.reading && (clock.reading.temperature != null || clock.reading.battery != null)}
+                  <div class="stats">
+                    {#if clock.reading.temperature != null}
+                      <span><Icon name="thermometer" size={14} />{formatTemperature(clock.reading.temperature, clock.reading.unit)}</span>
+                      <span><Icon name="droplet" size={14} />{clock.reading.humidity}%</span>
+                    {/if}
+                    {#if clock.reading.battery != null}
+                      <span class:low={clock.reading.battery < 20}>
+                        <Icon name="battery" size={14} level={clock.reading.battery} />{clock.reading.battery}%
+                      </span>
+                    {/if}
+                  </div>
+                {/if}
+
+                <div class="meta">
+                  {#if drift != null}
+                    <span class="badge" class:ok={Math.abs(drift) < 60} class:warn={Math.abs(drift) >= 60}>
+                      {formatDrift(drift)}
+                    </span>
+                  {/if}
+                  {#if clock.status}
+                    <span class="status {clock.status.type}">
+                      {#if clock.status.type === 'busy'}<span class="spinner"></span>{/if}
+                      {clock.status.text}
+                    </span>
+                  {:else if !clock.device}
+                    <span class="status">
+                      Not connected{clock.readAt ? ` · last read ${formatWhen(clock.readAt)}` : ''}
+                    </span>
+                  {/if}
+                </div>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
+      <div class="card-footer">
+        <button class="secondary" disabled={!supported || busy} onclick={() => pickClock()}>
+          <Icon name="plus" />
+          Add clock
         </button>
-      {/if}
-      {#if connecting}
-        <span class="hint">Connecting…</span>
-      {/if}
+        {#if connecting}
+          <span class="status busy"><span class="spinner"></span>Connecting…</span>
+        {/if}
+      </div>
     </div>
-    <button class="link" disabled={!supported || busy} onclick={() => pickClock(null, true)}>
-      Clock not listed? Show all Bluetooth devices
-    </button>
-    <details class="help">
-      <summary>Clock missing or not connecting?</summary>
-      <ul>
-        <li>
-          Close the Mi Home / Xiaomi Home app and disconnect the clock from anything else (phone, hub, Home
-          Assistant). A clock that's connected elsewhere stops showing up.
-        </li>
-        <li>Move closer to the clock and check its battery.</li>
-        <li>
-          Clocks set up in Mi Home work too, but don't broadcast their name, so they show up without one (e.g.
-          "Unknown or unsupported device") in the browser's list.
-        </li>
-        <li>
-          On a Mac, the addresses in Chrome's device list are made up by Chrome (macOS hides the real ones), so they
-          won't match the MAC shown here or in Mi Home.
-        </li>
-        <li>
-          As a last resort, factory reset the clock: remove the back cover and, while the clock is running, connect
-          the <strong>Reset</strong> and <strong>Gnd</strong> metal points next to a battery with something metal
-          (e.g. a paperclip) for more than 7 seconds. The clock restarts with factory settings. Delete it in the Mi
-          Home app if it was set up there, then add it here again.
-        </li>
-      </ul>
+
+    <details class="card disclosure">
+      <summary>
+        <span class="disclosure-icon"><Icon name="help" size={18} /></span>
+        <span class="disclosure-label">
+          Troubleshooting
+          <span class="muted small">Missing clocks, Mi Home, factory reset</span>
+        </span>
+        <span class="chevron"><Icon name="chevron" size={18} /></span>
+      </summary>
+      <div class="tips">
+        <div class="tip">
+          <h3>Not in the list?</h3>
+          <p>The browser's list only shows LYWSD02 clocks. If yours is missing, pick it from all nearby devices.</p>
+          <button class="secondary compact" disabled={!supported || busy} onclick={() => pickClock(null, true)}>
+            <Icon name="bluetooth" />
+            Show all Bluetooth devices
+          </button>
+        </div>
+        <div class="tip">
+          <h3>Connected to something else?</h3>
+          <p>
+            Close the Mi Home / Xiaomi Home app and disconnect the clock from phones, hubs or Home Assistant. A clock
+            that's connected elsewhere stops showing up.
+          </p>
+        </div>
+        <div class="tip">
+          <h3>Out of range?</h3>
+          <p>Move closer to the clock and check its battery.</p>
+        </div>
+        <div class="tip">
+          <h3>Set up in Mi Home?</h3>
+          <p>
+            That works too, but the clock doesn't broadcast its name, so it shows up as "Unknown or unsupported
+            device".
+          </p>
+        </div>
+        <div class="tip">
+          <h3>Addresses don't match on a Mac?</h3>
+          <p>
+            Chrome on macOS makes up the addresses in its device list. The MAC shown here (and in Mi Home) is the real
+            one.
+          </p>
+        </div>
+        <div class="tip">
+          <h3>Still stuck?</h3>
+          <p>
+            Factory reset the clock: remove the back cover and, while it's running, connect the
+            <strong>Reset</strong> and <strong>Gnd</strong> metal points next to a battery with something metal (e.g. a
+            paperclip) for more than 7 seconds. Delete it in Mi Home if it was set up there, then add it here again.
+          </p>
+        </div>
+      </div>
     </details>
-  </fieldset>
+  </section>
 
-  <fieldset>
-    <legend>Time sync</legend>
-    <label>
-      Time zone
-      <select bind:value={timeZone}>
-        {#each timeZoneGroups as group (group.region)}
-          <optgroup label={group.region}>
-            {#each group.zones as zone (zone.id)}
-              <option value={zone.id}>{zone.label}</option>
-            {/each}
-          </optgroup>
-        {/each}
-      </select>
-    </label>
-    {#if timeZone !== localTimeZone}
-      <button class="link" onclick={() => (timeZone = localTimeZone)}>Use my time zone ({localTimeZone})</button>
-    {/if}
-    <p class="hint">Clocks will show <strong>{clockTime}</strong> ({formatOffset(offsetMinutes)})</p>
-    <button
-      disabled={!supported || busy || selectedClocks.length === 0}
-      onclick={() => runOn(selectedClocks, 'Syncing time', syncTime)}
-    >
-      Sync time on {clocksLabel}
-    </button>
-  </fieldset>
+  <section>
+    <h2>Time</h2>
+    <div class="card padded">
+      <div class="preview">
+        <span class="muted small">Clocks will show</span>
+        <span class="preview-time">{clockTime}</span>
+        <span class="muted small">{formatOffset(offsetMinutes)} · {timeZone.replaceAll('_', ' ')}</span>
+      </div>
 
-  <fieldset>
-    <legend>Temperature unit</legend>
-    <label class="inline">
-      <input type="radio" bind:group={unit} value={CELSIUS} />
-      °C
-    </label>
-    <label class="inline">
-      <input type="radio" bind:group={unit} value={FAHRENHEIT} />
-      °F
-    </label>
-    <button
-      disabled={!supported || busy || selectedClocks.length === 0}
-      onclick={() => runOn(selectedClocks, 'Setting unit', syncUnit)}
-    >
-      Set unit on {clocksLabel}
-    </button>
-  </fieldset>
+      <label class="setting">
+        <span>
+          <span class="setting-label">Use this device's time zone</span>
+          <span class="muted small">{localTimeZone.replaceAll('_', ' ')}</span>
+        </span>
+        <input class="switch" type="checkbox" role="switch" bind:checked={useLocalZone} />
+      </label>
 
-  <fieldset>
-    <legend>Console</legend>
+      {#if !useLocalZone}
+        <select bind:value={chosenZone} aria-label="Time zone">
+          {#each timeZoneGroups as group (group.region)}
+            <optgroup label={group.region}>
+              {#each group.zones as zone (zone.id)}
+                <option value={zone.id}>{zone.label}</option>
+              {/each}
+            </optgroup>
+          {/each}
+        </select>
+      {/if}
+
+      <button
+        class="primary"
+        disabled={!supported || busy || selectedClocks.length === 0}
+        onclick={() => runOn(selectedClocks, 'Syncing time', syncTime)}
+      >
+        Sync time on {clocksLabel}
+      </button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Temperature unit</h2>
+    <div class="card padded">
+      <div class="segmented" role="radiogroup" aria-label="Temperature unit">
+        <label>
+          <input type="radio" bind:group={unit} value={CELSIUS} />
+          <span>°C Celsius</span>
+        </label>
+        <label>
+          <input type="radio" bind:group={unit} value={FAHRENHEIT} />
+          <span>°F Fahrenheit</span>
+        </label>
+      </div>
+      <button
+        class="secondary"
+        disabled={!supported || busy || selectedClocks.length === 0}
+        onclick={() => runOn(selectedClocks, 'Setting unit', syncUnit)}
+      >
+        Set unit on {clocksLabel}
+      </button>
+    </div>
+  </section>
+
+  <details class="card disclosure log">
+    <summary>
+      <span class="disclosure-icon"><Icon name="list" size={18} /></span>
+      <span class="disclosure-label">
+        Activity log
+        <span class="muted small">{logs.length ? `${logs.length} entr${logs.length === 1 ? 'y' : 'ies'}` : 'Nothing yet'}</span>
+      </span>
+      <span class="chevron"><Icon name="chevron" size={18} /></span>
+    </summary>
     <div class="console" bind:this={consoleEl} aria-live="polite">
       {#each logs as entry, i (i)}
-        <div><span class="time">{entry.time}</span> {entry.message}</div>
+        <div><span class="muted">{entry.time}</span> {entry.message}</div>
       {:else}
-        <div class="empty">Nothing yet.</div>
+        <div class="muted">Nothing yet.</div>
       {/each}
     </div>
-  </fieldset>
+  </details>
 
-  <section class="credits">
-    <h2>Based on code snippets from</h2>
-    <ul>
-      <li><a href="https://web.dev/bluetooth/" target="_blank" rel="noopener">Web.dev</a></li>
-      <li>
-        <a href="https://github.com/h4/lywsd02/blob/master/lywsd02/client.py" target="_blank" rel="noopener">lywsd02</a>
-      </li>
-      <li>
-        <a href="https://github.com/muro-dot/lywsd02-ble-android-app" target="_blank" rel="noopener">
-          lywsd02-ble-android-app
-        </a>
-      </li>
-    </ul>
-
-    <h2>Special thanks to</h2>
-    <ul>
-      <li>
-        <a href="https://github.com/dearmash" target="_blank" rel="noopener">Harold De Armas</a> for adding
-        C/F support
-      </li>
-      <li>
-        <a href="https://www.linkedin.com/in/mitjapugelj" target="_blank" rel="noopener">Mitja Pugelj</a> my personal
-        hero
-      </li>
-    </ul>
-
+  <footer>
     <p>
-      For connection issues, open <code>chrome://bluetooth-internals/#devices/</code> in Chrome.
+      Inspired by the original
+      <a href="https://saso5.github.io/LYWSD02-clock-sync/" target="_blank" rel="noopener">LYWSD02 Clock sync</a>. Based
+      on code snippets from
+      <a href="https://web.dev/bluetooth/" target="_blank" rel="noopener">web.dev</a>,
+      <a href="https://github.com/h4/lywsd02/blob/master/lywsd02/client.py" target="_blank" rel="noopener">lywsd02</a>
+      and
+      <a href="https://github.com/muro-dot/lywsd02-ble-android-app" target="_blank" rel="noopener">lywsd02-ble-android-app</a>.
+      Special thanks to
+      <a href="https://github.com/dearmash" target="_blank" rel="noopener">Harold De Armas</a> for adding C/F support and
+      <a href="https://www.linkedin.com/in/mitjapugelj" target="_blank" rel="noopener">Mitja Pugelj</a>.
     </p>
-  </section>
+    <p>For connection issues, open <code>chrome://bluetooth-internals/#devices/</code> in Chrome.</p>
+    <p>
+      <a href="https://github.com/khromov/mi-LYWSD02-clock-sync-ui" target="_blank" rel="noopener">Source on GitHub</a>
+    </p>
+  </footer>
 </main>
