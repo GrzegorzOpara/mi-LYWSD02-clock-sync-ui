@@ -1,73 +1,178 @@
-// GATT UUIDs from https://github.com/h4/lywsd02/blob/master/lywsd02/client.py
-export const TIME_SERVICE = 'ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6'
-export const TIME = 'ebe0ccb7-7a0a-4b0c-8a1a-6ff2997da3a6'
-export const UNIT = 'ebe0ccbe-7a0a-4b0c-8a1a-6ff2997da3a6'
+// GATT protocol, see https://github.com/h4/lywsd02/blob/master/lywsd02/client.py
+const uuid = (short) => `ebe0cc${short}-7a0a-4b0c-8a1a-6ff2997da3a6`
+const SERVICE = uuid('b0')
+const TIME = uuid('b7') // uint32 LE unix timestamp + int8 whole-hour zone, read/write
+const UNIT = uuid('be') // uint8, read/write
+const SENSOR = uuid('c1') // int16 LE temperature in 0.01 °C + uint8 humidity %, notify
+const BATTERY = uuid('c4') // uint8 %, read
+const DEVICE_INFORMATION = 0x180a
+const SYSTEM_ID = 0x2a23 // 6 bytes, unique per clock
 
-export const CELSIUS = 0
-export const FAHRENHEIT = 1
+const XIAOMI_COMPANY_ID = 0x038f
+// From https://github.com/Bluetooth-Devices/xiaomi-ble/blob/main/src/xiaomi_ble/devices.py
+const PRODUCT_IDS = [0x2542 /* LYWSD02MMC */, 0x16e4 /* LYWSD02MMC */, 0x045b /* LYWSD02 */]
 
-const UNIT_NAMES = { [CELSIUS]: '°C', [FAHRENHEIT]: '°F' }
+// Clocks bound to Mi Home only send encrypted Xiaomi adverts without a name, so besides the
+// name, match the product id in Xiaomi's manufacturer data (uint16 LE at bytes 2-3).
+const CLOCK_FILTERS = [
+  { namePrefix: 'LYWSD02' },
+  ...PRODUCT_IDS.map((productId) => ({
+    manufacturerData: [
+      {
+        companyIdentifier: XIAOMI_COMPANY_ID,
+        dataPrefix: Uint8Array.of(0, 0, productId & 0xff, productId >> 8),
+        mask: Uint8Array.of(0, 0, 0xff, 0xff),
+      },
+    ],
+  })),
+]
+
+export const CELSIUS = 0xff
+export const FAHRENHEIT = 0x01
+
+const CONNECT_TIMEOUT_MS = 20_000
+const ADVERTISEMENT_TIMEOUT_MS = 10_000
+const SENSOR_TIMEOUT_MS = 10_000
 
 export function isBluetoothSupported() {
   return 'bluetooth' in navigator
 }
 
-/**
- * The clock only stores a whole-hour zone, so half-hour zones are expressed as
- * the hour below plus a 30 minute shift of the timestamp (e.g. UTC-3:30 is -4 + 30 min).
- */
-export function getBrowserTimeZone() {
-  const offsetMinutes = -new Date().getTimezoneOffset()
-  const zone = Math.floor(offsetMinutes / 60)
-  return { zone, add30Min: offsetMinutes - zone * 60 >= 30 }
+/** Opens the browser's device chooser. Browsers only allow picking one device per call. */
+export function requestClock(showAllDevices = false) {
+  return navigator.bluetooth.requestDevice({
+    ...(showAllDevices ? { acceptAllDevices: true } : { filters: CLOCK_FILTERS }),
+    optionalServices: [SERVICE, DEVICE_INFORMATION],
+  })
 }
 
-/** Time payload: uint32 little-endian unix timestamp followed by an int8 hour offset. */
-export function encodeTime(date, zone, add30Min) {
-  const timestamp = Math.floor(date.getTime() / 1000) + (add30Min ? 30 * 60 : 0)
+/** Devices this site was given access to on earlier visits. Chrome only supports this behind a flag. */
+export async function getRememberedClocks() {
+  if (!navigator.bluetooth?.getDevices) return []
+  try {
+    return await navigator.bluetooth.getDevices()
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The clock shows timestamp + zone hours and only stores whole hours, so the leftover
+ * minutes of half/quarter-hour zones (e.g. UTC+5:30, UTC−3:30, UTC+5:45) are added to
+ * the timestamp instead.
+ */
+export function encodeTime(date, offsetMinutes) {
+  const zone = Math.floor(offsetMinutes / 60)
+  const timestamp = Math.floor(date.getTime() / 1000) + (offsetMinutes - zone * 60) * 60
   const view = new DataView(new ArrayBuffer(5))
   view.setUint32(0, timestamp, true)
   view.setInt8(4, zone)
   return view.buffer
 }
 
-async function withCharacteristic(uuid, log, action) {
-  if (!isBluetoothSupported()) {
-    throw new Error('Web Bluetooth API is not supported in this browser.')
-  }
+/** How many seconds the time shown on the clock is ahead of UTC. */
+function decodeDisplayOffset(view) {
+  const zone = view.byteLength > 4 ? view.getInt8(4) : 0
+  return Math.round(view.getUint32(0, true) + zone * 3600 - Date.now() / 1000)
+}
 
-  const device = await navigator.bluetooth.requestDevice({
-    acceptAllDevices: true,
-    optionalServices: [TIME_SERVICE],
+function withTimeout(promise, ms, message) {
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms)
   })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
 
+async function waitForAdvertisement(device) {
+  const controller = new AbortController()
   try {
-    log('Connecting...')
-    const server = await device.gatt.connect()
-    log('Getting primary service...')
-    const service = await server.getPrimaryService(TIME_SERVICE)
-    log('Getting characteristic...')
-    const characteristic = await service.getCharacteristic(uuid)
-    await action(characteristic)
+    const seen = new Promise((resolve) => device.addEventListener('advertisementreceived', resolve, { once: true }))
+    await device.watchAdvertisements({ signal: controller.signal })
+    await withTimeout(seen, ADVERTISEMENT_TIMEOUT_MS, 'Clock not found. Is it in range?')
+  } finally {
+    controller.abort()
+  }
+}
+
+async function connect(device) {
+  const attempt = () =>
+    withTimeout(device.gatt.connect(), CONNECT_TIMEOUT_MS, 'Timed out connecting. Is the clock in range?')
+  try {
+    return await attempt()
+  } catch (error) {
+    // Chrome can only connect to a remembered device (from getDevices) after seeing it advertise.
+    if (!device.watchAdvertisements) throw error
+    await waitForAdvertisement(device)
+    return attempt()
+  }
+}
+
+async function withService(device, action) {
+  try {
+    const server = await connect(device)
+    return await action(await server.getPrimaryService(SERVICE), server)
   } finally {
     device.gatt.disconnect()
   }
 }
 
-export function updateTime(zone, add30Min, log) {
-  return withCharacteristic(TIME, log, async (characteristic) => {
-    log('Writing time value...')
-    // Encode after connecting so time spent in the device picker isn't lost.
-    await characteristic.writeValue(encodeTime(new Date(), zone, add30Min))
-    log('Time updated.')
+async function read(service, characteristic) {
+  return (await service.getCharacteristic(characteristic)).readValue()
+}
+
+async function write(service, characteristic, value) {
+  await (await service.getCharacteristic(characteristic)).writeValueWithResponse(value)
+}
+
+async function readSensor(service) {
+  const characteristic = await service.getCharacteristic(SENSOR)
+  const notification = new Promise((resolve) => {
+    characteristic.addEventListener('characteristicvaluechanged', () => resolve(characteristic.value), {
+      once: true,
+    })
+  })
+  await characteristic.startNotifications()
+  const view = await withTimeout(notification, SENSOR_TIMEOUT_MS, 'No temperature reading received.')
+  return { temperature: view.getInt16(0, true) / 100, humidity: view.getUint8(2) }
+}
+
+/**
+ * Identifies the clock across browser sessions, where Chrome's device ids change. The System ID
+ * is hashed because it's derived from the MAC address and localStorage is shared by every
+ * page on the same github.io origin.
+ */
+async function readHardwareId(server) {
+  try {
+    const service = await server.getPrimaryService(DEVICE_INFORMATION)
+    const systemId = await read(service, SYSTEM_ID)
+    const hash = await crypto.subtle.digest('SHA-256', systemId)
+    return [...new Uint8Array(hash, 0, 8)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  } catch {
+    return null
+  }
+}
+
+export function readStatus(device) {
+  return withService(device, async (service, server) => ({
+    hardwareId: await readHardwareId(server),
+    battery: (await read(service, BATTERY)).getUint8(0),
+    unit: (await read(service, UNIT)).getUint8(0) === FAHRENHEIT ? FAHRENHEIT : CELSIUS,
+    displayOffset: decodeDisplayOffset(await read(service, TIME)),
+    // Keep the other readings if the sensor doesn't notify in time.
+    ...(await readSensor(service).catch(() => ({ temperature: null, humidity: null }))),
+  }))
+}
+
+/** Writes the current time and returns the display offset read back from the clock. */
+export function writeTime(device, offsetMinutes) {
+  return withService(device, async (service) => {
+    await write(service, TIME, encodeTime(new Date(), offsetMinutes))
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    return decodeDisplayOffset(await read(service, TIME))
   })
 }
 
-export function updateUnit(unit, log) {
-  return withCharacteristic(UNIT, log, async (characteristic) => {
-    const oldUnit = (await characteristic.readValue()).getUint8(0)
-    log(`Writing unit value (${UNIT_NAMES[oldUnit] ?? oldUnit} -> ${UNIT_NAMES[unit]})...`)
-    await characteristic.writeValue(Uint8Array.of(unit))
-    log('Unit updated.')
-  })
+export function writeUnit(device, unit) {
+  return withService(device, (service) => write(service, UNIT, Uint8Array.of(unit)))
 }
