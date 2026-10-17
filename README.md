@@ -6,8 +6,8 @@ Set the time, time zone and temperature unit on one or more Xiaomi Mijia LYWSD02
 
 <table>
   <tr>
-    <td><img src="docs/screenshot-light.png" alt="Clock sync in light mode" width="320"></td>
-    <td><img src="docs/screenshot-dark.png" alt="Clock sync in dark mode" width="320"></td>
+    <td><img src="docs/screenshot-top.png" alt="Clock list with temperature, humidity, battery and time status for each clock" width="320"></td>
+    <td><img src="docs/screenshot-bottom.png" alt="Time sync, temperature unit and activity log" width="320"></td>
   </tr>
 </table>
 
